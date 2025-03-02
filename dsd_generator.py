@@ -157,7 +157,7 @@ class DSDGenerator(mobase.IPluginTool):
         
         # 遍历所有模组，按加载顺序从低到高
         for mod_name in mods:
-            mod = self._organizer.getMod(mod_name)
+            mod = self._organizer.modList().getMod(mod_name)
             if not mod:
                 continue
             
@@ -175,7 +175,7 @@ class DSDGenerator(mobase.IPluginTool):
                             translation_files[relative_path] = {
                                 'path': full_path,
                                 'original': original_files[relative_path],
-                                'priority': mod.priority()
+                                'mod_name': mod_name  # 保存mod名称而不是priority
                             }
                         else:
                             # 这是一个原始文件
@@ -188,26 +188,28 @@ class DSDGenerator(mobase.IPluginTool):
         timestamp = datetime.now().strftime("%m-%d-%H-%M")
         mod_name = f"DSD_Configs_{timestamp}"
         try:
-            self._organizer.createMod(mod_name)
+            new_mod = self._organizer.createMod(mod_name)
+            if not new_mod:
+                raise Exception(self.__tr("Failed to create output mod"))
         except Exception as e:
             raise Exception(self.__tr("Failed to create output mod: ") + str(e))
             
-        mod = self._organizer.getMod(mod_name)
-        if not mod:
-            raise Exception(self.__tr("Failed to create output mod! {mod_name}"))
-            
-        output_dir = mod.absolutePath()
+        output_dir = new_mod.absolutePath()
+        if not output_dir or not os.path.exists(output_dir):
+            raise Exception(self.__tr(f"Failed to create output mod directory! {mod_name}"))
         
         # 为每个翻译文件生成DSD配置
         for file_path, info in translation_files.items():
             # 如果存在多个翻译，选择优先级最高的
             if (file_path in translation_files and 
-                translation_files[file_path]['priority'] > info['priority']):
+                self._get_mod_priority(translation_files[file_path]['mod_name']) > 
+                self._get_mod_priority(info['mod_name'])):
                 continue
             
             # 调用esp2dsd生成配置文件
             output_file = os.path.join(output_dir, os.path.basename(file_path) + ".json")
             try:
+                # Run ESP2DSD and capture output
                 result = subprocess.run(
                     [esp2dsd_exe, info['original'], info['path']],
                     check=True,
@@ -215,12 +217,23 @@ class DSDGenerator(mobase.IPluginTool):
                     text=True,
                     cwd=os.path.dirname(esp2dsd_exe)
                 )
+                
+                # Write log to file in output directory
+                log_file = os.path.join(output_dir, os.path.basename(file_path) + ".log")
+                with open(log_file, "w", encoding="utf-8") as f:
+                    f.write(f"Original: {info['original']}\n")
+                    f.write(f"Translation: {info['path']}\n")
+                    f.write("\nStdout:\n")
+                    f.write(result.stdout)
+                    f.write("\nStderr:\n")
+                    f.write(result.stderr)
                 # esp2dsd.exe 会在当前目录的output文件夹下生成配置文件
                 # 我们需要将其移动到我们指定的输出目录
+                pluginName = os.path.splitext(os.path.basename(file_path))
                 generated_file = os.path.join(
                     os.path.dirname(esp2dsd_exe),
                     "output",
-                    os.path.basename(file_path) + ".json"
+                    f"{pluginName[0]}_output{pluginName[1]}.json"
                 )
                 if os.path.exists(generated_file):
                     os.replace(generated_file, output_file)
@@ -234,6 +247,9 @@ class DSDGenerator(mobase.IPluginTool):
             self.__tr("Success"),
             self.__tr(f"DSD configuration files have been generated in mod:\n{mod_name}")
         )
+    
+    def _get_mod_priority(self, mod_name: str) -> int:
+        return self._organizer.modList().priority(mod_name)
     
     def __tr(self, str_):
         return QCoreApplication.translate("DSDGenerator", str_)
