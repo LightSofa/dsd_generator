@@ -150,6 +150,19 @@ class DSDGenerator(mobase.IPluginTool):
                 )
     
     def generate_dsd_configs(self, esp2dsd_exe: str):
+        # 显示进度条动画
+        # progress_dialog = QProgressDialog(
+        #     self.__tr("Generating DSD configurations..."), 
+        #     self.__tr("Cancel"), 
+        #     0, 
+        #     len(translation_files), 
+        #     self._parent
+        # )
+        # progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        # progress_dialog.setMinimumDuration(0)
+        # progress_dialog.setValue(0)
+        # progress_dialog.show()
+
         # 获取所有模组
         mods = self._organizer.modList().allMods()
         original_files = {}  # 原始插件文件
@@ -185,19 +198,24 @@ class DSDGenerator(mobase.IPluginTool):
             raise Exception(self.__tr("No translation patches found in enabled mods!"))
 
         # 创建新的mod作为输出目录
-        timestamp = datetime.now().strftime("%m-%d-%H-%M")
-        mod_name = f"DSD_Configs_{timestamp}"
-        try:
-            new_mod = self._organizer.createMod(mod_name)
-            if not new_mod:
-                raise Exception(self.__tr("Failed to create output mod"))
-        except Exception as e:
-            raise Exception(self.__tr("Failed to create output mod: ") + str(e))
+        timestamp = datetime.now().strftime("%y-%m-%d-%H-%M")
+        newMod_name = f"DSD_Configs_{timestamp}"
+        # try:
+        #     new_mod = self._organizer.createMod(newMod_name)
+        #     if not new_mod:
+        #         raise Exception(self.__tr("Failed to create output mod"))
+        # except Exception as e:
+        #     raise Exception(self.__tr("Failed to create output mod: ") + str(e))
             
-        output_dir = new_mod.absolutePath()
-        if not output_dir or not os.path.exists(output_dir):
-            raise Exception(self.__tr(f"Failed to create output mod directory! {mod_name}"))
-        
+        # output_dir = new_mod.absolutePath()
+        # if not output_dir or not os.path.exists(output_dir):
+        #     raise Exception(self.__tr(f"Failed to create output mod directory! {newMod_name}"))
+        newMod_dir = os.path.join(
+            self._organizer.modsPath(),
+            newMod_name
+        )
+        os.makedirs(newMod_dir, exist_ok=True)
+
         # 为每个翻译文件生成DSD配置
         for file_path, info in translation_files.items():
             # 如果存在多个翻译，选择优先级最高的
@@ -207,6 +225,7 @@ class DSDGenerator(mobase.IPluginTool):
                 continue
             
             # 调用esp2dsd生成配置文件
+            output_dir = os.path.join(newMod_dir, "SKSE\Plugins\DynamicStringDistributor",os.path.basename(file_path))
             output_file = os.path.join(output_dir, os.path.basename(file_path) + ".json")
             try:
                 # Run ESP2DSD and capture output
@@ -219,14 +238,15 @@ class DSDGenerator(mobase.IPluginTool):
                 )
                 
                 # Write log to file in output directory
-                log_file = os.path.join(output_dir, os.path.basename(file_path) + ".log")
-                with open(log_file, "w", encoding="utf-8") as f:
-                    f.write(f"Original: {info['original']}\n")
-                    f.write(f"Translation: {info['path']}\n")
-                    f.write("\nStdout:\n")
-                    f.write(result.stdout)
-                    f.write("\nStderr:\n")
-                    f.write(result.stderr)
+                # log_file = os.path.join(output_dir, os.path.basename(file_path) + ".log")
+                # with open(log_file, "w", encoding="utf-8") as f:
+                #     f.write(f"Original: {info['original']}\n")
+                #     f.write(f"Translation: {info['path']}\n")
+                #     f.write("\nStdout:\n")
+                #     f.write(result.stdout)
+                #     f.write("\nStderr:\n")
+                #     f.write(result.stderr)
+
                 # esp2dsd.exe 会在当前目录的output文件夹下生成配置文件
                 # 我们需要将其移动到我们指定的输出目录
                 pluginName = os.path.splitext(os.path.basename(file_path))
@@ -236,6 +256,7 @@ class DSDGenerator(mobase.IPluginTool):
                     f"{pluginName[0]}_output{pluginName[1]}.json"
                 )
                 if os.path.exists(generated_file):
+                    os.makedirs(output_dir, exist_ok=True)
                     os.replace(generated_file, output_file)
                 else:
                     raise Exception(f"Expected output file not found: {generated_file}")
@@ -245,8 +266,10 @@ class DSDGenerator(mobase.IPluginTool):
         QMessageBox.information(
             self._parent,
             self.__tr("Success"),
-            self.__tr(f"DSD configuration files have been generated in mod:\n{mod_name}")
+            self.__tr(f"DSD configuration files have been generated in mod:\n{newMod_name}")
         )
+        # 刷新模组列表
+        self._organizer.refresh()
     
     def _get_mod_priority(self, mod_name: str) -> int:
         return self._organizer.modList().priority(mod_name)
