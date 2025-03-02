@@ -3,7 +3,7 @@ from datetime import datetime
 import os
 import subprocess
 import mobase
-from PyQt6.QtWidgets import QDialog, QFileDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
+from PyQt6.QtWidgets import QDialog, QFileDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressDialog
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QCoreApplication
 
@@ -77,7 +77,7 @@ class DSDGenerator(mobase.IPluginTool):
         return "DSD Generator"
     
     def author(self) -> str:
-        return "Your Name"
+        return "lightsofa"
     
     def description(self) -> str:
         return self.__tr("Generate DSD configuration files from translation patches.")
@@ -150,23 +150,24 @@ class DSDGenerator(mobase.IPluginTool):
                 )
     
     def generate_dsd_configs(self, esp2dsd_exe: str):
-        # 显示进度条动画
-        # progress_dialog = QProgressDialog(
-        #     self.__tr("Generating DSD configurations..."), 
-        #     self.__tr("Cancel"), 
-        #     0, 
-        #     len(translation_files), 
-        #     self._parent
-        # )
-        # progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
-        # progress_dialog.setMinimumDuration(0)
-        # progress_dialog.setValue(0)
-        # progress_dialog.show()
-
-        # 获取所有模组
-        mods = self._organizer.modList().allMods()
+        # 获取所有已启用的模组
+        mods = [mod for mod in self._organizer.modList().allMods() if self._organizer.modList().state(mod) & mobase.ModState.ACTIVE]
         original_files = {}  # 原始插件文件
         translation_files = {}  # 翻译插件文件
+
+        # 显示进度条动画
+        translating_progress = 0
+        progress_dialog = QProgressDialog(
+            self.__tr("Generating DSD configurations..."), 
+            self.__tr("Cancel"), 
+            0, 
+            len(mods), 
+            self._parent
+        )
+        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress_dialog.setMinimumDuration(3000)
+        progress_dialog.setValue(translating_progress)
+        progress_dialog.show()
         
         # 遍历所有模组，按加载顺序从低到高
         for mod_name in mods:
@@ -200,16 +201,6 @@ class DSDGenerator(mobase.IPluginTool):
         # 创建新的mod作为输出目录
         timestamp = datetime.now().strftime("%y-%m-%d-%H-%M")
         newMod_name = f"DSD_Configs_{timestamp}"
-        # try:
-        #     new_mod = self._organizer.createMod(newMod_name)
-        #     if not new_mod:
-        #         raise Exception(self.__tr("Failed to create output mod"))
-        # except Exception as e:
-        #     raise Exception(self.__tr("Failed to create output mod: ") + str(e))
-            
-        # output_dir = new_mod.absolutePath()
-        # if not output_dir or not os.path.exists(output_dir):
-        #     raise Exception(self.__tr(f"Failed to create output mod directory! {newMod_name}"))
         newMod_dir = os.path.join(
             self._organizer.modsPath(),
             newMod_name
@@ -228,13 +219,20 @@ class DSDGenerator(mobase.IPluginTool):
             output_dir = os.path.join(newMod_dir, "SKSE\Plugins\DynamicStringDistributor",os.path.basename(file_path))
             output_file = os.path.join(output_dir, os.path.basename(file_path) + ".json")
             try:
-                # Run ESP2DSD and capture output
+                # Run ESP2DSD at background
+                startupinfo = None
+                if os.name == 'nt':
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = subprocess.SW_HIDE
+
                 result = subprocess.run(
                     [esp2dsd_exe, info['original'], info['path']],
                     check=True,
                     capture_output=True,
                     text=True,
-                    cwd=os.path.dirname(esp2dsd_exe)
+                    cwd=os.path.dirname(esp2dsd_exe),
+                    startupinfo=startupinfo
                 )
                 
                 # Write log to file in output directory
@@ -262,7 +260,10 @@ class DSDGenerator(mobase.IPluginTool):
                     raise Exception(f"Expected output file not found: {generated_file}")
             except subprocess.CalledProcessError as e:
                 raise Exception(f"Error processing {file_path}: {e.stderr}")
+            translating_progress += 1
+            progress_dialog.setValue(translating_progress)
         
+        progress_dialog.cancel()
         QMessageBox.information(
             self._parent,
             self.__tr("Success"),
