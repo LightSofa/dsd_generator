@@ -155,20 +155,6 @@ class DSDGenerator(mobase.IPluginTool):
         original_files = {}  # 原始插件文件
         translation_files = {}  # 翻译插件文件
 
-        # 显示进度条动画
-        translating_progress = 0
-        progress_dialog = QProgressDialog(
-            self.__tr("Generating DSD configurations..."), 
-            self.__tr("Cancel"), 
-            0, 
-            len(mods), 
-            self._parent
-        )
-        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
-        progress_dialog.setMinimumDuration(3000)
-        progress_dialog.setValue(translating_progress)
-        progress_dialog.show()
-        
         # 遍历所有模组，按加载顺序从低到高
         for mod_name in mods:
             mod = self._organizer.modList().getMod(mod_name)
@@ -197,6 +183,18 @@ class DSDGenerator(mobase.IPluginTool):
         
         if not translation_files:
             raise Exception(self.__tr("No translation patches found in enabled mods!"))
+        
+        # 显示进度条动画
+        translating_progress = 0
+        progress_dialog = QProgressDialog(
+            self.__tr("Generating DSD configurations..."), 
+            self.__tr("Cancel"), 
+            translating_progress, 
+            len(translation_files), 
+            self._parent
+        )
+        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress_dialog.show()
 
         # 创建新的mod作为输出目录
         timestamp = datetime.now().strftime("%y-%m-%d-%H-%M")
@@ -254,8 +252,11 @@ class DSDGenerator(mobase.IPluginTool):
                     f"{pluginName[0]}_output{pluginName[1]}.json"
                 )
                 if os.path.exists(generated_file):
-                    os.makedirs(output_dir, exist_ok=True)
-                    os.replace(generated_file, output_file)
+                    if os.path.getsize(generated_file) < 3: # 排除空JSON文件。（空文件的判断标准：filesize < 3 bytes）
+                        del generated_file
+                    else:
+                        os.makedirs(output_dir, exist_ok=True)
+                        os.replace(generated_file, output_file)
                 else:
                     raise Exception(f"Expected output file not found: {generated_file}")
             except subprocess.CalledProcessError as e:
