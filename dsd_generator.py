@@ -278,3 +278,4 @@ class DSDGenerator(mobase.IPluginTool):
     
     def __tr(self, str_):
         return QCoreApplication.translate("DSDGenerator", str_)
+
