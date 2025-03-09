@@ -3,7 +3,8 @@ from datetime import datetime
 import os
 import subprocess
 import mobase
-from PyQt6.QtWidgets import QDialog, QFileDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressDialog
+import shutil
+from PyQt6.QtWidgets import QDialog, QFileDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressDialog, QCheckBox
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QCoreApplication
 
@@ -29,6 +30,10 @@ class ConfigDialog(QDialog):
         path_layout.addWidget(browse_button)
         
         layout.addLayout(path_layout)
+        
+        # 添加复制选项复选框
+        self.copy_checkbox = QCheckBox(self.tr("make a copy to translation patch directories"))
+        layout.addWidget(self.copy_checkbox)
         
         # 确定和取消按钮
         button_layout = QHBoxLayout()
@@ -60,6 +65,12 @@ class ConfigDialog(QDialog):
     
     def set_exe_path(self, path: str):
         self.path_edit.setText(path)
+    
+    def get_copy_enabled(self) -> bool:
+        return self.copy_checkbox.isChecked()
+    
+    def set_copy_enabled(self, enabled: bool):
+        self.copy_checkbox.setChecked(enabled)
 
 
 class DSDGenerator(mobase.IPluginTool):
@@ -92,6 +103,7 @@ class DSDGenerator(mobase.IPluginTool):
         return [
                 mobase.PluginSetting("enabled", self.__tr("Enable this plugin"), True),
                 mobase.PluginSetting("esp2dsd_path", self.__tr("Path to ESP2DSD executable"), ""),
+                mobase.PluginSetting("copy_to_translation_patch_directoy", self.__tr("make a copy to translation patch directories"), False),
             ]
         
     def displayName(self) -> str:
@@ -112,8 +124,10 @@ class DSDGenerator(mobase.IPluginTool):
         
         # 加载保存的exe路径
         saved_path = self._organizer.pluginSetting(self.name(), "esp2dsd_path")
+        copy_enabled = self._organizer.pluginSetting(self.name(), "copy_to_translation_patch_directoy")
         if saved_path:
             self._dialog.set_exe_path(str(saved_path))
+        self._dialog.set_copy_enabled(bool(copy_enabled))
         
         if self._dialog.exec() == QDialog.DialogCode.Accepted:
             exe_path = self._dialog.get_exe_path()
@@ -130,6 +144,7 @@ class DSDGenerator(mobase.IPluginTool):
             
             # 保存设置
             self._organizer.setPluginSetting(self.name(), "esp2dsd_path", exe_path)
+            self._organizer.setPluginSetting(self.name(), "copy_to_translation_patch_directoy", self._dialog.get_copy_enabled())
             
             # 确认是否继续
             if QMessageBox.question(
@@ -238,10 +253,10 @@ class DSDGenerator(mobase.IPluginTool):
                 # with open(log_file, "w", encoding="utf-8") as f:
                 #     f.write(f"Original: {info['original']}\n")
                 #     f.write(f"Translation: {info['path']}\n")
-                #     f.write("\nStdout:\n")
-                #     f.write(result.stdout)
-                #     f.write("\nStderr:\n")
-                #     f.write(result.stderr)
+                    # f.write("\nStdout:\n")
+                    # f.write(result.stdout)
+                    # f.write("\nStderr:\n")
+                    # f.write(result.stderr)
 
                 # esp2dsd.exe 会在当前目录的output文件夹下生成配置文件
                 # 我们需要将其移动到我们指定的输出目录
@@ -257,6 +272,15 @@ class DSDGenerator(mobase.IPluginTool):
                     else:
                         os.makedirs(output_dir, exist_ok=True)
                         os.replace(generated_file, output_file)
+                        # 可选功能：给翻译补丁添加".disabled"后缀，
+                        os.rename(info['path'], info['path'] + ".disabled")
+                        # 然后将生成的文件复制到翻译补丁所在的目录。
+                        if self._dialog.get_copy_enabled():
+                            translation_patch_dir = os.path.dirname(info['path'])
+                            copy_to_dir = os.path.join(translation_patch_dir, "SKSE\Plugins\DynamicStringDistributor",os.path.basename(file_path))
+                            os.makedirs(copy_to_dir, exist_ok=True)
+                            shutil.copy2(output_file, os.path.join(copy_to_dir, os.path.basename(output_file)))
+
                 else:
                     raise Exception(f"Expected output file not found: {generated_file}")
             except subprocess.CalledProcessError as e:
