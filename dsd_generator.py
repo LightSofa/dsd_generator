@@ -32,8 +32,11 @@ class ConfigDialog(QDialog):
         layout.addLayout(path_layout)
         
         # 添加复制选项复选框
-        self.copy_checkbox = QCheckBox(self.tr("make a copy to translation patch directories"))
+        self.copy_checkbox = QCheckBox(self.tr("use generated config files instead of translation patch plugins"))
         layout.addWidget(self.copy_checkbox)
+        # add a description tip when mouse hover on the checkbox
+        self.copy_checkbox.setToolTip(self.tr("This will copy generated DSD configuration file to the translation patch directories, and add '.mohidden' suffix to the original translation plugin."))
+
         
         # 确定和取消按钮
         button_layout = QHBoxLayout()
@@ -272,8 +275,8 @@ class DSDGenerator(mobase.IPluginTool):
                     else:
                         os.makedirs(output_dir, exist_ok=True)
                         os.replace(generated_file, output_file)
-                        # 可选功能：给翻译补丁添加".disabled"后缀，
-                        os.rename(info['path'], info['path'] + ".disabled")
+                        # 可选功能：给翻译补丁添加".mohidden"后缀，
+                        os.rename(info['path'], info['path'] + ".mohidden")
                         # 然后将生成的文件复制到翻译补丁所在的目录。
                         if self._dialog.get_copy_enabled():
                             translation_patch_dir = os.path.dirname(info['path'])
