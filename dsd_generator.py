@@ -4,7 +4,7 @@ import os
 import subprocess
 import mobase
 import shutil
-from PyQt6.QtWidgets import QDialog, QFileDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressDialog, QCheckBox
+from PyQt6.QtWidgets import QDialog, QFileDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressDialog, QCheckBox, QTextEdit
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QCoreApplication
 
@@ -37,6 +37,13 @@ class ConfigDialog(QDialog):
         # add a description tip when mouse hover on the checkbox
         self.copy_checkbox.setToolTip(self.tr("This will copy generated DSD configuration file to the translation patch directories, and add '.mohidden' suffix to the original translation plugin."))
 
+        # 黑名单管理
+        blacklist_layout = QVBoxLayout()
+        blacklist_layout.addWidget(QLabel(self.tr("ignored plugins (one per line):")))
+        self.blacklist_edit = QTextEdit()
+        self.blacklist_edit.setMaximumHeight(100)
+        blacklist_layout.addWidget(self.blacklist_edit)
+        layout.addLayout(blacklist_layout)
         
         # 确定和取消按钮
         button_layout = QHBoxLayout()
@@ -75,6 +82,20 @@ class ConfigDialog(QDialog):
     def set_copy_enabled(self, enabled: bool):
         self.copy_checkbox.setChecked(enabled)
 
+    def get_blacklist(self) -> List[str]:
+        blacklist_file = os.path.join(os.path.dirname(__file__), "blacklist.txt")
+        if os.path.exists(blacklist_file):
+            with open(blacklist_file, 'r', encoding='utf-8') as f:
+                return [line.strip() for line in f if line.strip()]
+        return self.blacklist_edit.toPlainText().split('\n')
+    
+    def set_blacklist(self, blacklist: List[str]):
+        self.blacklist_edit.setPlainText('\n'.join(blacklist))
+
+    def save_blacklist(self):
+        with open(os.path.join(os.path.dirname(__file__), "blacklist.txt"), 'w', encoding='utf-8') as f:
+            f.write(self.blacklist_edit.toPlainText())
+
 
 class DSDGenerator(mobase.IPluginTool):
     def __init__(self):
@@ -99,8 +120,8 @@ class DSDGenerator(mobase.IPluginTool):
     def version(self) -> mobase.VersionInfo:
         return mobase.VersionInfo(1, 0, 0, 0, mobase.ReleaseType.ALPHA)
         
-        def isActive(self) -> bool:
-            return bool(self._organizer.pluginSetting(self.name(), "enabled"))
+    def isActive(self) -> bool:
+        return bool(self._organizer.pluginSetting(self.name(), "enabled"))
         
     def settings(self) -> List[mobase.PluginSetting]:
         return [
@@ -128,9 +149,12 @@ class DSDGenerator(mobase.IPluginTool):
         # 加载保存的exe路径
         saved_path = self._organizer.pluginSetting(self.name(), "esp2dsd_path")
         copy_enabled = self._organizer.pluginSetting(self.name(), "copy_to_translation_patch_directoy")
+        blacklist = self._dialog.get_blacklist()
+        
         if saved_path:
             self._dialog.set_exe_path(str(saved_path))
         self._dialog.set_copy_enabled(bool(copy_enabled))
+        self._dialog.set_blacklist(blacklist or [])
         
         if self._dialog.exec() == QDialog.DialogCode.Accepted:
             exe_path = self._dialog.get_exe_path()
@@ -148,6 +172,7 @@ class DSDGenerator(mobase.IPluginTool):
             # 保存设置
             self._organizer.setPluginSetting(self.name(), "esp2dsd_path", exe_path)
             self._organizer.setPluginSetting(self.name(), "copy_to_translation_patch_directoy", self._dialog.get_copy_enabled())
+            self._dialog.save_blacklist()
             
             # 确认是否继续
             if QMessageBox.question(
@@ -168,6 +193,21 @@ class DSDGenerator(mobase.IPluginTool):
                 )
     
     def generate_dsd_configs(self, esp2dsd_exe: str):
+        # 显示进度条动画
+        translating_progress = 0
+        progress_dialog = QProgressDialog(
+            self.__tr("Generating DSD configurations..."), 
+            None,
+            translating_progress, 
+            0, 
+            self._parent
+        )
+        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress_dialog.show()
+
+        # 读取黑名单
+        blacklist = self._dialog.blacklist_edit.toPlainText().split('\n')
+
         # 获取所有已启用的模组
         mods = [mod for mod in self._organizer.modList().allMods() if self._organizer.modList().state(mod) & mobase.ModState.ACTIVE]
         original_files = {}  # 原始插件文件
@@ -183,6 +223,10 @@ class DSDGenerator(mobase.IPluginTool):
             mod_path = mod.absolutePath()
             for root, _, files in os.walk(mod_path):
                 for file in files:
+                    # 跳过黑名单中的插件
+                    if file.lower() in map(str.lower, blacklist):
+                        continue
+                        
                     if file.lower().endswith(('.esp', '.esm', '.esl')):
                         full_path = os.path.join(root, file)
                         relative_path = os.path.relpath(full_path, mod_path)
@@ -201,18 +245,9 @@ class DSDGenerator(mobase.IPluginTool):
         
         if not translation_files:
             raise Exception(self.__tr("No translation patches found in enabled mods!"))
-        
-        # 显示进度条动画
-        translating_progress = 0
-        progress_dialog = QProgressDialog(
-            self.__tr("Generating DSD configurations..."), 
-            self.__tr("Cancel"), 
-            translating_progress, 
-            len(translation_files), 
-            self._parent
-        )
-        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
-        progress_dialog.show()
+
+        # 设置进度条最大值
+        progress_dialog.setMaximum(len(translation_files))
 
         # 创建新的mod作为输出目录
         timestamp = datetime.now().strftime("%y-%m-%d-%H-%M")
@@ -270,20 +305,36 @@ class DSDGenerator(mobase.IPluginTool):
                     f"{pluginName[0]}_output{pluginName[1]}.json"
                 )
                 if os.path.exists(generated_file):
-                    if os.path.getsize(generated_file) < 3: # 排除空JSON文件。（空文件的判断标准：filesize < 3 bytes）
-                        del generated_file
+                    if os.path.getsize(generated_file) < 3:  # 排除空JSON文件
+                        os.remove(generated_file)  
                     else:
-                        os.makedirs(output_dir, exist_ok=True)
-                        os.replace(generated_file, output_file)
-                        # 可选功能：给翻译补丁添加".mohidden"后缀，
-                        os.rename(info['path'], info['path'] + ".mohidden")
-                        # 然后将生成的文件复制到翻译补丁所在的目录。
-                        if self._dialog.get_copy_enabled():
-                            translation_patch_dir = os.path.dirname(info['path'])
-                            copy_to_dir = os.path.join(translation_patch_dir, "SKSE\Plugins\DynamicStringDistributor",os.path.basename(file_path))
-                            os.makedirs(copy_to_dir, exist_ok=True)
-                            shutil.copy2(output_file, os.path.join(copy_to_dir, os.path.basename(output_file)))
-
+                        try:
+                            os.makedirs(output_dir, exist_ok=True)
+                            os.replace(generated_file, output_file)
+                            
+                            if self._dialog.get_copy_enabled():
+                                # 检查原文件是否存在且能访问
+                                if os.path.exists(info['path']) and os.access(info['path'], os.W_OK):
+                                    # 检查目标文件是否已存在
+                                    if not os.path.exists(info['path'] + ".mohidden"):
+                                        os.rename(info['path'], info['path'] + ".mohidden")
+                                        
+                                        translation_patch_dir = os.path.dirname(info['path'])
+                                        copy_to_dir = os.path.join(translation_patch_dir, 
+                                                                 "SKSE", "Plugins", 
+                                                                 "DynamicStringDistributor",
+                                                                 os.path.basename(file_path))
+                                        os.makedirs(copy_to_dir, exist_ok=True)
+                                        shutil.copy2(output_file, os.path.join(copy_to_dir, 
+                                                                             os.path.basename(output_file)))
+                                    else:
+                                        self._organizer.logger.warning(
+                                            f"Skipped renaming {info['path']}: .mohidden file already exists")
+                                else:
+                                    self._organizer.logger.error(
+                                        f"Cannot access file for renaming: {info['path']}")
+                        except (OSError, IOError) as e:
+                            raise Exception(f"File operation failed for {file_path}: {str(e)}")
                 else:
                     raise Exception(f"Expected output file not found: {generated_file}")
             except subprocess.CalledProcessError as e:

@@ -1,0 +1,2 @@
+SurvivalModeImproved.esp
+LoadScreenCompendium.esp
