@@ -209,7 +209,7 @@ class DSDGenerator(mobase.IPluginTool):
         blacklist = self._dialog.blacklist_edit.toPlainText().split('\n')
 
         # 获取所有已启用的模组
-        mods = [mod for mod in self._organizer.modList().allMods() if self._organizer.modList().state(mod) & mobase.ModState.ACTIVE]
+        mods = [mod for mod in self._organizer.modList().allModsByProfilePriority() if self._organizer.modList().state(mod) & mobase.ModState.ACTIVE]
         original_files = {}  # 原始插件文件
         translation_files = {}  # 翻译插件文件
 

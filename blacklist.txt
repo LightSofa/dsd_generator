@@ -1,2 +1,3 @@
 SurvivalModeImproved.esp
 LoadScreenCompendium.esp
+Starfrost.esp
