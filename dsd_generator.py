@@ -233,6 +233,10 @@ class DSDGenerator(mobase.IPluginTool):
                         
                         # 检查这个文件是否覆盖了之前的文件
                         if relative_path in original_files:
+                            # 如果这个文件的文件大小是在原始文件的1.2倍以上，或者在原始文件的0.8倍以下，那么它肯定不是翻译文件
+                            if os.path.getsize(full_path) > os.path.getsize(original_files[relative_path]) * 1.2 or \
+                                os.path.getsize(full_path) < os.path.getsize(original_files[relative_path]) * 0.8:
+                                continue
                             # 这是一个翻译文件，记录它和对应的原始文件
                             translation_files[relative_path] = {
                                 'path': full_path,
