@@ -205,8 +205,20 @@ class DSDGenerator(mobase.IPluginTool):
         progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
         progress_dialog.show()
 
-        # 读取黑名单
-        blacklist = self._dialog.blacklist_edit.toPlainText().split('\n')
+        # 将黑名单分为文件黑名单、文件夹黑名单和modid黑名单
+        blacklist_files = []
+        blacklist_folders = []
+        blacklist_modids = []
+        for item in self._dialog.blacklist_edit.toPlainText().split('\n'):
+            item = item.strip()
+            if not item or item.startswith('#'):
+                continue
+            if item.startswith('@'):
+                blacklist_modids.append(item[1:].lower())  # 去掉@前缀
+            elif item.endswith('/'):
+                blacklist_folders.append(item[:-1].lower())
+            else:
+                blacklist_files.append(item.lower())
 
         # 获取所有已启用的模组
         mods = [mod for mod in self._organizer.modList().allModsByProfilePriority() if self._organizer.modList().state(mod) & mobase.ModState.ACTIVE]
@@ -215,16 +227,36 @@ class DSDGenerator(mobase.IPluginTool):
 
         # 遍历所有模组，按加载顺序从低到高
         for mod_name in mods:
+            # 检查模组是否在黑名单中
+            if mod_name.lower() in blacklist_folders:
+                continue
+                
             mod = self._organizer.modList().getMod(mod_name)
             if not mod:
                 continue
-            
+
+            # 检查modid是否在黑名单中 (仅当blacklist_modids非空)
+            if blacklist_modids:
+                mod_meta_file = os.path.join(mod.absolutePath(), 'meta.ini')
+                skip_mod = False
+                if os.path.exists(mod_meta_file):
+                    with open(mod_meta_file, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            if line.startswith('modid='):
+                                mod_id = line.strip().split('=')[1].lower()
+                                if mod_id in blacklist_modids:
+                                    skip_mod = True
+                                    blacklist_modids.remove(mod_id)
+                                break
+                if skip_mod:
+                    continue
+                    
             # 遍历模组中的文件
             mod_path = mod.absolutePath()
             for root, _, files in os.walk(mod_path):
                 for file in files:
                     # 跳过黑名单中的插件
-                    if file.lower() in map(str.lower, blacklist):
+                    if file.lower() in map(str.lower, blacklist_files):
                         continue
                         
                     if file.lower().endswith(('.esp', '.esm', '.esl')):
