@@ -45,16 +45,14 @@ class ConfigDialog(QDialog):
         blacklist_layout.addWidget(self.blacklist_edit)
         layout.addLayout(blacklist_layout)
         
-        # 输出目录设置
+        # 输出MOD名称设置
         output_layout = QHBoxLayout()
-        output_layout.addWidget(QLabel(self.tr("Output Directory:")))
+        output_layout.addWidget(QLabel(self.tr("Output Dir:")))
         
         self.output_edit = QLineEdit()
+        # 修改占位符文本的设置方法
+        self.output_edit.setPlaceholderText(self.tr(f"DSD_Configs_{datetime.now().strftime("%y-%m-%d-%H-%M")}"))
         output_layout.addWidget(self.output_edit)
-        
-        output_browse_button = QPushButton(self.tr("Browse..."))
-        output_browse_button.clicked.connect(self.browse_output)
-        output_layout.addWidget(output_browse_button)
         
         layout.addLayout(output_layout)
         
@@ -83,15 +81,6 @@ class ConfigDialog(QDialog):
         if file_path:
             self.path_edit.setText(file_path)
     
-    def browse_output(self):
-        dir_path = QFileDialog.getExistingDirectory(
-            self,
-            self.tr("Select Output Directory"),
-            ""
-        )
-        if dir_path:
-            self.output_edit.setText(dir_path)
-    
     def get_exe_path(self) -> str:
         return self.path_edit.text()
     
@@ -118,12 +107,11 @@ class ConfigDialog(QDialog):
         with open(os.path.join(os.path.dirname(__file__), "blacklist.txt"), 'w', encoding='utf-8') as f:
             f.write(self.blacklist_edit.toPlainText())
 
-    def get_output_path(self) -> str:
-        return self.output_edit.text()
+    def get_output_name(self) -> str:
+        return self.output_edit.text().strip()
     
-    def set_output_path(self, path: str):
-        self.output_edit.setText(path)
-
+    def set_output_name(self, name: str):
+        self.output_edit.setText(name)
 
 class DSDGenerator(mobase.IPluginTool):
     def __init__(self):
@@ -156,7 +144,7 @@ class DSDGenerator(mobase.IPluginTool):
                 mobase.PluginSetting("enabled", self.__tr("Enable this plugin"), True),
                 mobase.PluginSetting("esp2dsd_path", self.__tr("Path to ESP2DSD executable"), ""),
                 mobase.PluginSetting("copy_to_translation_patch_directoy", self.__tr("make a copy to translation patch directories"), False),
-                mobase.PluginSetting("output_directory", self.__tr("Output directory for generated files"), ""),
+                mobase.PluginSetting("output_mod_name", self.__tr("Output Dir"), ""),
             ]
         
     def displayName(self) -> str:
@@ -178,13 +166,13 @@ class DSDGenerator(mobase.IPluginTool):
         # 加载保存的设置
         saved_path = self._organizer.pluginSetting(self.name(), "esp2dsd_path")
         copy_enabled = self._organizer.pluginSetting(self.name(), "copy_to_translation_patch_directoy")
-        output_dir = self._organizer.pluginSetting(self.name(), "output_directory")
+        output_name = self._organizer.pluginSetting(self.name(), "output_mod_name")
         blacklist = self._dialog.get_blacklist()
         
         if saved_path:
             self._dialog.set_exe_path(str(saved_path))
-        if output_dir:
-            self._dialog.set_output_path(str(output_dir))
+        if output_name:
+            self._dialog.set_output_name(str(output_name))
         self._dialog.set_copy_enabled(bool(copy_enabled))
         self._dialog.set_blacklist(blacklist or [])
         
@@ -204,7 +192,7 @@ class DSDGenerator(mobase.IPluginTool):
             # 保存设置
             self._organizer.setPluginSetting(self.name(), "esp2dsd_path", exe_path)
             self._organizer.setPluginSetting(self.name(), "copy_to_translation_patch_directoy", self._dialog.get_copy_enabled())
-            self._organizer.setPluginSetting(self.name(), "output_directory", self._dialog.get_output_path())
+            self._organizer.setPluginSetting(self.name(), "output_mod_name", self._dialog.get_output_name())
             self._dialog.save_blacklist()
             
             # 确认是否继续
@@ -318,18 +306,15 @@ class DSDGenerator(mobase.IPluginTool):
         # 设置进度条最大值
         progress_dialog.setMaximum(len(translation_files))
 
-        # 创建新的mod作为输出目录
-        custom_output_dir = self._organizer.pluginSetting(self.name(), "output_directory")
-        if custom_output_dir and os.path.exists(custom_output_dir):
-            output_mod_name = os.path.basename(custom_output_dir)
+        # 设置输出目录
+        custom_mod_name = self._dialog.get_output_name()
+        if not custom_mod_name:
+            output_mod_name = self._dialog.output_edit.placeholderText()
         else:
-            timestamp = datetime.now().strftime("%y-%m-%d-%H-%M")
-            output_mod_name = f"DSD_Configs_{timestamp}"
-            custom_output_dir = os.path.join(
-                self._organizer.modsPath(),
-                output_mod_name
-            )
-        os.makedirs(custom_output_dir, exist_ok=True)
+            output_mod_name = custom_mod_name
+            
+        output_dir = os.path.join(self._organizer.modsPath(), output_mod_name)
+        os.makedirs(output_dir, exist_ok=True)
 
         # 为每个翻译文件生成DSD配置
         for file_path, info in translation_files.items():
@@ -340,7 +325,7 @@ class DSDGenerator(mobase.IPluginTool):
                 continue
             
             # 调用esp2dsd生成配置文件
-            output_dir = os.path.join(custom_output_dir, "SKSE\Plugins\DynamicStringDistributor",os.path.basename(file_path))
+            output_dir = os.path.join(custom_mod_name, "SKSE\Plugins\DynamicStringDistributor",os.path.basename(file_path))
             output_file = os.path.join(output_dir, os.path.basename(file_path) + ".json")
             try:
                 # Run ESP2DSD at background
