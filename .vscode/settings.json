@@ -1,4 +1,5 @@
 {
   "Codegeex.RepoIndex": true,
-  "python.analysis.autoImportCompletions": true
+  "python.analysis.autoImportCompletions": true,
+  "python.languageServer": "Jedi"
 }
