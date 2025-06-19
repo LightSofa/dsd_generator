@@ -1,0 +1,3 @@
+- [x] Implement a progress dialog for the DSD generation process.
+- [x] Allow the user to specify the output directory for the generated DSD files.
+- [ ] Remember incorrect translation patches, and automatically add them to the blacklist.`
