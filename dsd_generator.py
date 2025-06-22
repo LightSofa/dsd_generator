@@ -10,6 +10,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QCoreApplication, qInfo, qCritical, qDebug, qWarning
 import time
 import json
+from .utils import file_stat
 
 def _2ascii(msg: str) -> str:
     # 将由UTF8编码的中文字符串转为ASCII编码
@@ -150,19 +151,25 @@ class DSDGenerator(mobase.IPluginTool):
     
     def auto_run(self, app_path: str) -> bool:
         _qDebug(f"[DSDGenerator] Auto run triggered for: {app_path}")
-        auto_run = self._organizer.pluginSetting(self.name(), "auto_run")
-        if (os.path.basename(app_path).lower() == 'skse64_loader.exe') and auto_run:
-            return self.run_if_needed()
-        return True
+        is_target_app = (os.path.basename(app_path).lower() == 'skse64_loader.exe')
+        should_auto_run = self._organizer.pluginSetting(self.name(), "auto_run")
+        
 
-    def run_if_needed(self) -> bool:
-        _qDebug("[DSDGenerator] Checking if DSD generation is needed")
-        exe_path = self._organizer.pluginSetting(self.name(), "esp2dsd_path")
-        if not exe_path or not os.path.exists(str(exe_path)):
-            _qWarning(f"[DSDGenerator] ESP2DSD executable not set or does not exist: {exe_path}")
-            return True
-        show_progress_when_auto_run = self._organizer.pluginSetting(self.name(), "show_progress_when_auto_run")
-        self.generate_dsd_configs(str(exe_path), show_progress=bool(show_progress_when_auto_run), is_auto_run=True, blacklist=self._read_blacklist())
+        if is_target_app and should_auto_run:
+            # 检查是否需要生成DSD配置
+
+            exe_path = self._organizer.pluginSetting(self.name(), "esp2dsd_path")
+            exe_path = str(exe_path) if exe_path else ""
+            if not exe_path or not os.path.exists(exe_path):
+                _qWarning(f"[DSDGenerator] ESP2DSD executable not set or does not exist: {exe_path}")
+                return True
+            self.generate_dsd_configs(
+                esp2dsd_exe=exe_path,
+                show_progress=bool(self._organizer.pluginSetting(self.name(), "show_progress_when_auto_run")),
+                is_auto_run=True,
+                blacklist=self._read_blacklist()
+            )
+
         return True
 
 
@@ -288,14 +295,7 @@ class DSDGenerator(mobase.IPluginTool):
                 return {}
         return {}
 
-    def _calculate_file_info(self, file_path: str) -> dict:
-        _qDebug(f"[DSDGenerator] Calculating file info for: {file_path}")
-        """获取文件的大小和修改时间"""
-        stat = os.stat(file_path)
-        return {
-            "size": stat.st_size,
-            "mtime": stat.st_mtime
-        }
+
 
     def _is_valid_translation_pair(self, original_file: str, translation_file: str) -> bool:
         _qDebug(f"[DSDGenerator] Validating translation pair: {original_file} -> {translation_file}")
@@ -331,20 +331,10 @@ class DSDGenerator(mobase.IPluginTool):
         try:
             incorrect_pairs = self._get_incorrect_pairs()
             
-            # 一次性获取文件状态
-            orig_stat = os.stat(original_file)
-            trans_stat = os.stat(translation_file)
-            
-            file_name = os.path.basename(original_file)
-            incorrect_pairs[file_name] = {
-                "original": {
-                    "size": orig_stat.st_size,
-                    "mtime": orig_stat.st_mtime
-                },
-                "translation": {
-                    "size": trans_stat.st_size,
-                    "mtime": trans_stat.st_mtime
-                }
+            # 更新错误配对记录
+            incorrect_pairs[os.path.basename(original_file)] = {
+                "original": file_stat(original_file),
+                "translation": file_stat(translation_file)
             }
 
             # 更新缓存
@@ -380,19 +370,22 @@ class DSDGenerator(mobase.IPluginTool):
 
     def generate_dsd_configs(self, esp2dsd_exe: str, show_progress: bool = True, is_auto_run: bool = False, blacklist: list[str] = []):
         _qDebug(f"[DSDGenerator] Starting DSD config generation. ESP2DSD: {esp2dsd_exe}, show_progress: {show_progress}, auto_run: {is_auto_run}")
-        # 修改进度对话框的显示逻辑
         progress_dialog = None
         if show_progress:
-            translating_progress = 0
             progress_dialog = QProgressDialog(
-                tr("Generating DSD configurations..."), 
+                tr("Preparing to scan mods..."), 
                 None,
-                translating_progress, 
-                0, 
+                0,
+                0,
                 self._parent
             )
-            progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress_dialog.show()
+            progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+            progress_dialog.setMinimumDuration(0)
+            progress_dialog.setValue(0)
+            progress_dialog.setAutoClose(True)
+            progress_dialog.setAutoReset(True)
+            # 强制刷新界面，确保进度条立即显示
+            QCoreApplication.processEvents()
 
         # 将黑名单分为文件黑名单、文件夹黑名单和modid黑名单
         blacklist_files = []
@@ -414,11 +407,14 @@ class DSDGenerator(mobase.IPluginTool):
 
         # 获取所有已启用的模组
         mods = [mod for mod in self._organizer.modList().allModsByProfilePriority() if self._organizer.modList().state(mod) & mobase.ModState.ACTIVE]
-        original_files = {}  # 原始插件文件
-        translation_files = {}  # 翻译插件文件
+        original_files = {}
+        translation_files = {}
 
         # 遍历所有模组，按加载顺序从低到高
         _qDebug(f"Processing mods...")
+        if progress_dialog:
+            progress_dialog.setLabelText(tr("Scanning enabled mods for translation patches..."))
+            QCoreApplication.processEvents()
         for mod_name in mods:
 
             _qDebug(f"Processing mod: {mod_name}")
@@ -452,44 +448,55 @@ class DSDGenerator(mobase.IPluginTool):
             # 遍历模组中的文件
             _qDebug(f"Processing mod: {mod_name}")
             mod_path = mod.absolutePath()
-            for root, _, files in os.walk(mod_path):
-                for file in files:
-                    # 跳过黑名单中的插件
-                    if file.lower() in map(str.lower, blacklist_files):
-                        continue
-                        
-                    if file.lower().endswith(('.esp', '.esm', '.esl')):
-                        full_path = os.path.join(root, file)
-                        relative_path = os.path.relpath(full_path, mod_path)
-                        
-                        # 检查这个文件是否覆盖了之前的文件
-                        if relative_path in original_files:
-                            # 检查配对有效性
-                            if not self._is_valid_translation_pair(original_files[relative_path], full_path):
-                                _qInfo(f"Skipping invalid translation pair: {original_files[relative_path]} -> {full_path}")
-                                continue
-                            # 这是一个翻译文件，记录它和对应的原始文件
-                            translation_files[relative_path] = {
-                                'path': full_path,
-                                'original': original_files[relative_path],
-                                'mod_name': mod_name  # 保存mod名称而不是priority
-                            }
-                        else:
-                            # 这是一个原始文件
-                            original_files[relative_path] = full_path
+            # 只遍历mod_path下的第一层文件，不进行深度遍历
+            try:
+                files = os.listdir(mod_path)
+            except Exception as e:
+                _qWarning(f"Failed to list files in {mod_path}: {e}")
+                continue
+            root = mod_path
+            for file in files:
+                # 跳过黑名单中的插件
+                if file.lower() in map(str.lower, blacklist_files):
+                    continue
+                    
+                if file.lower().endswith(('.esp', '.esm', '.esl')):
+                    full_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(full_path, mod_path)
+                    
+                    # 检查这个文件是否覆盖了之前的文件
+                    if relative_path in original_files:
+                        # 检查配对有效性
+                        if not self._is_valid_translation_pair(original_files[relative_path], full_path):
+                            _qInfo(f"Skipping invalid translation pair: {original_files[relative_path]} -> {full_path}")
+                            continue
+                        # 这是一个翻译文件，记录它和对应的原始文件
+                        translation_files[relative_path] = {
+                            'path': full_path,
+                            'original': original_files[relative_path],
+                            'mod_name': mod_name  # 保存mod名称而不是priority
+                        }
+                    else:
+                        # 这是一个原始文件
+                        original_files[relative_path] = full_path
         
         if not translation_files:
+            if progress_dialog:
+                progress_dialog.close()
             QMessageBox.information(self._parent,"ESP2DSD", tr("No translation patches found in enabled mods!"))
 
-        # 修改进度更新逻辑
-        if progress_dialog:
+        # 在获取到translation_files后更新进度对话框的最大值
+        if progress_dialog and len(translation_files) > 0:
             progress_dialog.setMaximum(len(translation_files))
+            progress_dialog.setLabelText(tr("Generating DSD configurations..."))
+            QCoreApplication.processEvents()
+            translating_progress = 0
 
         # 设置输出目录
         output_mod_name = self._get_output_mod_name(is_auto_run)
 
         # 统计最终生成的翻译文件数量
-        generated_files_count = 0
+        output_files_count = 0
 
         # 为每个翻译文件生成DSD配置
         _qDebug(f"Generating DSD configurations in {output_mod_name}...")
@@ -570,13 +577,13 @@ class DSDGenerator(mobase.IPluginTool):
                                                                  os.path.basename(file_path))
                                         os.makedirs(copy_to_dir, exist_ok=True)
                                         shutil.copy2(output_file, os.path.join(copy_to_dir, os.path.basename(output_file)))
-                                        generated_files_count += 1
                                     else:
                                         _qWarning(
                                             f"Skipped renaming {info['path']}: .mohidden file already exists")
                                 else:
                                     _qCritical(
                                         f"Cannot access file for renaming: {info['path']}")
+                            output_files_count += 1
                         except (OSError, IOError) as e:
                             raise Exception(f"File operation failed for {file_path}: {str(e)}")
                 else:
@@ -590,26 +597,33 @@ class DSDGenerator(mobase.IPluginTool):
             translating_progress += 1
             if progress_dialog:
                 progress_dialog.setValue(translating_progress)
+                QCoreApplication.processEvents()
 
+        # 修改进度对话框的关闭逻辑
         if progress_dialog:
-            progress_dialog.cancel()
+            progress_dialog.setValue(progress_dialog.maximum())
+            progress_dialog.close()
+
         if is_auto_run:
             _qInfo(
-                f"DSD configurations generated successfully! {generated_files_count} files generated."
+                f"DSD configurations generated successfully! {output_files_count} files generated."
             )
         else:
             QMessageBox.information(
                 self._parent,
                 tr("Success"),
-                tr("DSD configurations generated successfully!" + f"\n{generated_files_count} {tr('files generated.')}")
+                tr(f"DSD configurations generated successfully!\n{output_files_count} files generated.")
             )
 
+
         # 刷新模组列表
-        if (self._organizer.pluginSetting(self.name(), "output_mod_name") == ""):
-            self._organizer.refresh()
+        self._organizer.refresh()
+        # 自动运行时自动启用生成的模组
+        if (is_auto_run):
+            self._organizer.modList().setActive([output_mod_name], True)
         
     def _get_mod_priority(self, mod_name: str) -> int:
         _qDebug(f"[DSDGenerator] Getting priority for mod: {mod_name}")
         return self._organizer.modList().priority(mod_name) # type: ignore
-    
+
 

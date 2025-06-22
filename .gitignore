@@ -1,5 +1,6 @@
 /__pycache__
 /doc
 doc/*
-blacklist.txt
+/blacklist.txt
 esp2dsd_batch_converter/
+/incorrect_pairs.json
