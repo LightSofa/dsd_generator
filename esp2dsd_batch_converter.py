@@ -295,13 +295,10 @@ class DSDGenerator(mobase.IPluginTool):
                 return {}
         return {}
 
-
-
     def _is_valid_translation_pair(self, original_file: str, translation_file: str) -> bool:
         _qDebug(f"[DSDGenerator] Validating translation pair: {original_file} -> {translation_file}")
         """检查是否为有效的翻译文件配对"""
         _qDebug(f"Checking file pair: {original_file} <-> {translation_file}")
-        # 一次性获取文件状态
         try:
             orig_stat = os.stat(original_file)
             trans_stat = os.stat(translation_file)
@@ -316,11 +313,12 @@ class DSDGenerator(mobase.IPluginTool):
             if file_name in incorrect_pairs:
                 pair = incorrect_pairs[file_name]
                 if (pair["original"]["size"] == orig_stat.st_size and
-                    pair["original"]["mtime"] == orig_stat.st_mtime and
-                    pair["translation"]["size"] == trans_stat.st_size and
-                    pair["translation"]["mtime"] == trans_stat.st_mtime):
-                    return False
-
+                    pair["original"]["mtime"] == orig_stat.st_mtime):
+                    # 检查 translations 列表中是否有匹配的 translation 文件
+                    for t in pair.get("translations", []):
+                        if (t["size"] == trans_stat.st_size and
+                            t["mtime"] == trans_stat.st_mtime):
+                            return False
             return True
         except Exception as e:
             _qWarning(f"Error checking file pair: {str(e)}")
@@ -330,18 +328,29 @@ class DSDGenerator(mobase.IPluginTool):
         _qDebug(f"[DSDGenerator] Recording incorrect pair: {original_file} -> {translation_file}")
         try:
             incorrect_pairs = self._get_incorrect_pairs()
-            
-            # 更新错误配对记录
-            incorrect_pairs[os.path.basename(original_file)] = {
-                "original": file_stat(original_file),
-                "translation": file_stat(translation_file)
-            }
+            file_name = os.path.basename(original_file)
+            orig_stat = file_stat(original_file)
+            trans_stat = file_stat(translation_file)
+            if file_name not in incorrect_pairs:
+                incorrect_pairs[file_name] = {
+                    "original": orig_stat,
+                    "translations": [trans_stat]
+                }
+            else:
+                # 如果 original 发生变化则重置 translations
+                if (incorrect_pairs[file_name]["original"]["size"] != orig_stat["size"] or
+                    incorrect_pairs[file_name]["original"]["mtime"] != orig_stat["mtime"]):
+                    incorrect_pairs[file_name]["original"] = orig_stat
+                    incorrect_pairs[file_name]["translations"] = [trans_stat]
+                else:
+                    # 添加到 translations 列表（避免重复）
+                    translations = incorrect_pairs[file_name].setdefault("translations", [])
+                    if not any(t["size"] == trans_stat["size"] and t["mtime"] == trans_stat["mtime"] for t in translations):
+                        translations.append(trans_stat)
 
-            # 更新缓存
             self._incorrect_pairs_cache = incorrect_pairs
             self._last_incorrect_pairs_mtime = time.time()
 
-            # 写入文件
             with open(self._incorrect_pairs_file, 'w', encoding='utf-8') as f:
                 json.dump(incorrect_pairs, f, indent=2, ensure_ascii=False)
 
@@ -591,8 +600,8 @@ class DSDGenerator(mobase.IPluginTool):
                 except UnicodeDecodeError:
                     error_message = e.stderr.decode('mcbs', errors='replace') if e.stderr else "No error output."
                 raise Exception(f"Error processing {file_path}: {error_message}")
-            translating_progress += 1
             if progress_dialog:
+                translating_progress += 1
                 progress_dialog.setValue(translating_progress)
 
         # 修改进度对话框的关闭逻辑
