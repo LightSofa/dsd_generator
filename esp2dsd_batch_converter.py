@@ -384,6 +384,7 @@ class DSDGenerator(mobase.IPluginTool):
             progress_dialog.setValue(0)
             progress_dialog.setAutoClose(True)
             progress_dialog.setAutoReset(True)
+            progress_dialog.setLabelText(tr("[ESP2DSD] Scanning translation patches..."))
             # 强制刷新界面，确保进度条立即显示
             QCoreApplication.processEvents()
 
@@ -412,9 +413,6 @@ class DSDGenerator(mobase.IPluginTool):
 
         # 遍历所有模组，按加载顺序从低到高
         _qDebug(f"Processing mods...")
-        if progress_dialog:
-            progress_dialog.setLabelText(tr("Scanning enabled mods for translation patches..."))
-            QCoreApplication.processEvents()
         for mod_name in mods:
 
             _qDebug(f"Processing mod: {mod_name}")
@@ -489,7 +487,6 @@ class DSDGenerator(mobase.IPluginTool):
         if progress_dialog and len(translation_files) > 0:
             progress_dialog.setMaximum(len(translation_files))
             progress_dialog.setLabelText(tr("Generating DSD configurations..."))
-            QCoreApplication.processEvents()
             translating_progress = 0
 
         # 设置输出目录
@@ -499,7 +496,7 @@ class DSDGenerator(mobase.IPluginTool):
         output_files_count = 0
 
         # 为每个翻译文件生成DSD配置
-        _qDebug(f"Generating DSD configurations in {output_mod_name}...")
+        _qDebug(f"Generated DSD configurations in {output_mod_name}...")
         for file_path, info in translation_files.items():
             # 如果存在多个翻译，选择优先级最高的
             if (file_path in translation_files and 
@@ -597,7 +594,6 @@ class DSDGenerator(mobase.IPluginTool):
             translating_progress += 1
             if progress_dialog:
                 progress_dialog.setValue(translating_progress)
-                QCoreApplication.processEvents()
 
         # 修改进度对话框的关闭逻辑
         if progress_dialog:

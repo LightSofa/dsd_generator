@@ -4,3 +4,4 @@ doc/*
 /blacklist.txt
 esp2dsd_batch_converter/
 /incorrect_pairs.json
+incorrect_pairs.json
