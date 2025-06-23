@@ -30,7 +30,7 @@ class ConfigDialog(QDialog):
         layout = QVBoxLayout()
         
         # 添加复制选项复选框
-        self.copy_checkbox = QCheckBox(self.tr("use generated config files instead of translation patch plugins"))
+        self.copy_checkbox = QCheckBox(self.tr("use generated config files instead of translation plugins"))
         layout.addWidget(self.copy_checkbox)
         # add a description tip when mouse hover on the checkbox
         self.copy_checkbox.setToolTip(self.tr("This will copy generated DSD configuration file to the translation patch directories, and add '.mohidden' suffix to the original translation plugin."))
@@ -145,12 +145,12 @@ class DSDGenerator(mobase.IPluginTool):
                 mobase.PluginSetting("enabled", tr("Enable this plugin"), True),
                 mobase.PluginSetting("copy_to_translation_patch_directoy", tr("make a copy to translation patch directories"), False),
                 mobase.PluginSetting("output_mod_name", tr("Output Dir"), ""),
-                mobase.PluginSetting("auto_run", tr("Automatically generate DSD configs when game starts"), True),
+                mobase.PluginSetting("auto_run", tr("Automatically generate DSD configs when game starts"), False),
                 mobase.PluginSetting("show_progress_when_auto_run", tr("Show progress dialog when auto generating"), True),
             ]
         
     def displayName(self) -> str:
-        return tr("ESP2DSD batch convertor")
+        return tr("Generate DSD Configs")
     
     def tooltip(self) -> str:
         return tr("Generate DSD configuration files from translation patches")

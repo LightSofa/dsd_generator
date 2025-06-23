@@ -5,12 +5,14 @@ Script to convert a plugin translation to a DSD file.
 """
 
 from copy import copy
-from ..utils import _qDebug, _qWarning
 from pathlib import Path
+import logging
 
 from .plugin_interface import Plugin
 from .plugin_interface.plugin_string import PluginString as String
 import json
+
+log = logging.getLogger("esp2dsd.converter")
 
 
 def merge_plugin_strings(
@@ -29,9 +31,10 @@ def merge_plugin_strings(
         for string in plugin.extract_strings()
     }
 
-    _qDebug(
-        f"Merging {len(original_strings)} original String(s) to {len(translation_strings)} translated String(s)..."
-    ) if debug else None
+    if debug:
+        log.debug(
+            f"Merging {len(original_strings)} original String(s) to {len(translation_strings)} translated String(s)..."
+        )
 
     merged_strings: list[String] = []
 
@@ -43,7 +46,8 @@ def merge_plugin_strings(
         )
 
         if original_string is None:
-            _qWarning(f"Not found in Original: {translation_string}") if debug else None
+            if debug:
+                log.warning(f"Not found in Original: {translation_string}")
             continue
         elif original_string.original_string == translation_string.original_string:
             skipped_strings += 1
@@ -55,8 +59,9 @@ def merge_plugin_strings(
         translation_string.status = String.Status.TranslationComplete
         merged_strings.append(translation_string)
 
-    _qWarning(f"Skipped {skipped_strings} duplicate/untranslated String(s)!") if debug else None
-    _qDebug(f"Merged {len(merged_strings)} String(s).") if debug else None
+    if debug:
+        log.warning(f"Skipped {skipped_strings} duplicate/untranslated String(s)!")
+        log.debug(f"Merged {len(merged_strings)} String(s).")
 
     return merged_strings
 

@@ -1,4 +1,4 @@
-# esp2dsd.exe has issues with handling the following plugins that may make your game CTD
+# DSD has issues with handling the following plugins that may make your game CTD.
 LoadScreenCompendium.esp
 SurvivalModeImproved.esp
 Starfrost.esp
