@@ -7,30 +7,11 @@ import mobase
 import shutil
 from PyQt6.QtWidgets import QDialog, QFileDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressDialog, QCheckBox, QTextEdit
 from PyQt6.QtGui import QIcon
-from PyQt6.QtCore import Qt, QCoreApplication, qInfo, qCritical, qDebug, qWarning
+from PyQt6.QtCore import Qt, QCoreApplication
 import time
 import json
-from .utils import file_stat
+from .utils import file_stat,_qInfo, _qWarning, _qCritical, _qDebug, tr
 
-def _2ascii(msg: str) -> str:
-    # 将由UTF8编码的中文字符串转为ASCII编码
-    return msg.encode('ascii', 'xmlcharrefreplace').decode('ascii')
-
-def _qInfo(msg: str):
-    # 将消息转换为ASCII编码并打印
-    qInfo(_2ascii(msg))
-def _qWarning(msg: str):
-    # 将消息转换为ASCII编码并打印
-    qWarning(_2ascii(msg))
-def _qCritical(msg: str):
-    # 将消息转换为ASCII编码并打印
-    qCritical(_2ascii(msg)) 
-def _qDebug(msg: str):
-    # 将消息转换为ASCII编码并打印
-    qDebug(_2ascii(msg))
-def tr(msg: str) -> str:
-    """翻译函数，使用QCoreApplication的translate方法"""
-    return QCoreApplication.translate("ESP2DSD batch Convertor", msg)
 
 class ConfigDialog(QDialog):
     def __init__(self, parent=None):
@@ -144,7 +125,7 @@ class DSDGenerator(mobase.IPluginTool):
         self._last_incorrect_pairs_mtime = 0
 
     def init(self, organizer: mobase.IOrganizer):
-        qDebug(f"[DSDGenerator] Initializing with organizer: {organizer}")
+        _qDebug(f"[DSDGenerator] Initializing with organizer: {organizer}")
         self._organizer = organizer
         self._organizer.onAboutToRun(self.auto_run)
         return True
@@ -560,7 +541,7 @@ class DSDGenerator(mobase.IPluginTool):
                     f"{pluginName[0]}_output{pluginName[1]}.json"
                 )
                 if os.path.exists(generated_file):
-                    if os.path.getsize(generated_file) < 3:  # 空配置文件
+                    if os.path.getsize(generated_file) < 3:  # 空配置文件,即生成的JSON文件中仅包含"[]"这两个字符。
                         os.remove(generated_file)
                         self._record_incorrect_pair(info['original'], info['path'])
                         _qWarning(f"Empty config generated for {file_path}, recorded as incorrect pair")
