@@ -8,8 +8,8 @@ from copy import copy
 from ..utils import _qDebug, _qWarning
 from pathlib import Path
 
-from plugin_interface import Plugin
-from plugin_interface.plugin_string import PluginString as String
+from .plugin_interface import Plugin
+from .plugin_interface.plugin_string import PluginString as String
 import json
 
 

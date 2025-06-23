@@ -5,11 +5,11 @@ Copyright (c) Cutleast
 from io import BufferedReader, BytesIO
 from pathlib import Path
 
-import jstyleson as json
+from . import jstyleson as json
 
 # Load file that defines which records contain subrecords that are strings
-whitelist_path = Path("string_records.json")
-# whitelist_path = Path(__file__).parent / "string_records.json"
+# whitelist_path = Path("string_records.json")
+whitelist_path = Path(__file__).parent / "string_records.json"
 whitelist_path = whitelist_path.resolve()
 with whitelist_path.open() as whitelist_file:
     STRING_RECORDS: dict[str, list[str]] = json.load(whitelist_file)
